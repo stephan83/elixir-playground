@@ -1,13 +1,11 @@
 defmodule Services.Example.Loop do
   @moduledoc """
-  Loop is an example service that periodically prints a number from the Sequence service.
+  Loop is an example service that periodically logs a number from the Sequence service.
   """
 
   use Services.Service
 
-  alias Services.Example.Sequence
-
-  require Logger
+  alias Services.Example.{Sequence, Log}
 
   @name __MODULE__
 
@@ -15,7 +13,7 @@ defmodule Services.Example.Loop do
   Needs returns the services that should be started before this one.
   """
   @impl true
-  def needs, do: [Sequence]
+  def needs, do: [Sequence, Log]
 
   @doc """
   Starts the service.
@@ -28,7 +26,7 @@ defmodule Services.Example.Loop do
 
   @spec loop() :: nil
   def loop() do
-    Logger.info("Looper says the next number of Sequence is #{Sequence.next()}.")
+    Log.info("Loop tells Log the next number given by Sequence is #{Sequence.next()}.")
     :timer.sleep(1000)
     loop()
   end

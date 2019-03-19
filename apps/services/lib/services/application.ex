@@ -3,7 +3,7 @@ defmodule Services.Application do
 
   use Application
 
-  alias Services.Example.{Loop, Sequence}
+  alias Services.Example.{Loop, Sequence, Log}
 
   require Logger
 
@@ -17,21 +17,25 @@ defmodule Services.Application do
 
       log_service_info(Loop)
       log_service_info(Sequence)
+      log_service_info(Log)
 
-      # Start the Looper service, which automatically starts the Sequence service.
+      # Start the Loop service, which automatically starts the Sequence and Log services.
       Services.Supervisor.start_service(Loop)
 
       log_service_info(Loop)
       log_service_info(Sequence)
+      log_service_info(Log)
 
       :timer.sleep(5000)
 
       # Stop services.
       Services.Supervisor.stop_service(Loop)
       Services.Supervisor.stop_service(Sequence)
+      Services.Supervisor.stop_service(Log)
 
       log_service_info(Loop)
       log_service_info(Sequence)
+      log_service_info(Log)
     end)
 
     {:ok, pid}
