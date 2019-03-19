@@ -12,6 +12,13 @@ defmodule Services.Supervisor do
 
   @name __MODULE__
 
+  @typedoc """
+  The status of a service.
+
+  If running, it is the pid of the service.
+  """
+  @type status :: :stopped | :starting | pid()
+
   @doc """
   Starts the supervisor.
   """
@@ -26,7 +33,7 @@ defmodule Services.Supervisor do
   @spec start_service(module()) :: [DynamicSupervisor.on_start_child()]
   def start_service(service) do
     Services.Dependencies.topological_sort(service)
-    |> Enum.map(&wait_for_service/1)
+    |> Enum.map(&wait_til_not_starting/1)
     |> Enum.filter(&(get_service_status(&1) == :stopped))
     |> Enum.map(&do_start_service/1)
   end
@@ -54,10 +61,8 @@ defmodule Services.Supervisor do
 
   @doc """
   Returns the status of a service.
-
-  If the service is running it returns its pid.
   """
-  @spec get_service_status(module()) :: :stopped | :starting | pid()
+  @spec get_service_status(module()) :: status()
   def get_service_status(service) do
     find_status = fn child ->
       case child do
@@ -88,10 +93,10 @@ defmodule Services.Supervisor do
   end
 
   @impl true
-  def init(_) do
-    DynamicSupervisor.init(strategy: :one_for_one)
-  end
+  @spec init(term()) :: {:ok, DynamicSupervisor.sup_flags()}
+  def init(_), do: DynamicSupervisor.init(strategy: :one_for_one)
 
+  @spec do_start_service(module()) :: DynamicSupervisor.on_start_child()
   defp do_start_service(service) do
     Logger.info("starting #{inspect(service)}")
 
@@ -102,18 +107,25 @@ defmodule Services.Supervisor do
     })
   end
 
-  defp wait_for_service(service) do
-    wait_for_service(service, get_service_status(service))
+  @spec wait_til_not_starting(module()) :: module()
+  defp wait_til_not_starting(service) do
+    wait_til_not_starting(service, get_service_status(service))
   end
 
-  defp wait_for_service(service, :starting) do
+  @spec wait_til_not_starting(module(), status()) :: module()
+  defp wait_til_not_starting(service, :starting) do
     :timer.sleep(100)
-    wait_for_service(service)
+    wait_til_not_starting(service)
   end
 
-  defp wait_for_service(service, _), do: service
+  defp wait_til_not_starting(service, _status) do
+    service
+  end
 
-  defp do_stop_service(_, false), do: {:error, :cannot_stop}
+  @spec do_stop_service(module(), boolean()) :: :ok | {:error, atom()}
+  defp do_stop_service(_service, false) do
+    {:error, :cannot_stop}
+  end
 
   defp do_stop_service(service, true) do
     Logger.info("stopping #{inspect(service)}")
@@ -121,6 +133,7 @@ defmodule Services.Supervisor do
     DynamicSupervisor.terminate_child(@name, pid)
   end
 
+  @spec get_children() :: [{module(), status()}]
   defp get_children() do
     children = DynamicSupervisor.which_children(@name)
 
@@ -129,6 +142,7 @@ defmodule Services.Supervisor do
     end)
   end
 
+  @spec convert_child_status(term()) :: status()
   defp convert_child_status(status) when is_pid(status), do: status
-  defp convert_child_status(_), do: :starting
+  defp convert_child_status(_status), do: :starting
 end

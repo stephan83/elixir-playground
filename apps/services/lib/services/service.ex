@@ -8,12 +8,12 @@ defmodule Services.Service do
   @doc """
   Called to start the service.
   """
-  @callback start_link() :: {:ok, pid()} | {:error, term()}
+  @callback start_link() :: {:ok, pid()} | {:error, atom()}
 
   @doc """
   Called to check if any services should be running before starting the service.
   """
-  @callback needs :: [atom]
+  @callback needs :: [module()]
 
   defmacro __using__(_) do
     quote do
