@@ -25,7 +25,6 @@ defmodule Services do
         end
       end
 
-      {:ok, _} = Services.Supervisor.start_link()
       Services.Supervisor.start_service(SequenceService)
   """
 end

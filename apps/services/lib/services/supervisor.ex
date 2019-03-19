@@ -50,6 +50,20 @@ defmodule Services.Supervisor do
   end
 
   @doc """
+  Stops all services.
+  """
+  @spec stop_all_services() :: [:ok]
+  def stop_all_services() do
+    stoppable = get_stoppable_services()
+
+    if length(stoppable) > 0 do
+      Enum.map(stoppable, &stop_service/1) ++ stop_all_services()
+    else
+      []
+    end
+  end
+
+  @doc """
   Returns the pid of a service.
   """
   @spec get_service_pid(module()) :: pid() | nil
@@ -133,7 +147,8 @@ defmodule Services.Supervisor do
     service
   end
 
-  @spec do_stop_service(module(), boolean()) :: :ok | {:error, atom()}
+  @spec do_stop_service(module(), boolean()) ::
+          :ok | {:error, :not_found} | {:error, :cannot_stop}
   defp do_stop_service(_service, false) do
     {:error, :cannot_stop}
   end
@@ -156,4 +171,12 @@ defmodule Services.Supervisor do
   @spec convert_child_status(term()) :: status()
   defp convert_child_status(status) when is_pid(status), do: status
   defp convert_child_status(_status), do: :starting
+
+  @spec get_stoppable_services() :: [module()]
+  defp get_stoppable_services() do
+    get_children()
+    |> Enum.map(fn {service, _} -> service end)
+    |> Enum.map(&wait_til_not_starting/1)
+    |> Enum.filter(&service_can_stop?/1)
+  end
 end
