@@ -8,6 +8,8 @@ defmodule Services.Supervisor do
 
   use DynamicSupervisor
 
+  alias Services.Dependencies
+
   require Logger
 
   @name __MODULE__
@@ -30,12 +32,13 @@ defmodule Services.Supervisor do
   @doc """
   Starts a service and any needed dependencies.
   """
-  @spec start_service(module()) :: [DynamicSupervisor.on_start_child()]
+  @spec start_service(module()) ::
+          [DynamicSupervisor.on_start_child()] | Dependencies.cyclic_error()
   def start_service(service) do
-    Services.Dependencies.topological_sort(service)
-    |> Enum.map(&wait_til_not_starting/1)
-    |> Enum.filter(&(get_service_status(&1) == :stopped))
-    |> Enum.map(&do_start_service/1)
+    case Dependencies.topological_sort(service) do
+      err = {:error, _} -> err
+      deps -> start_services(deps)
+    end
   end
 
   @doc """
@@ -43,7 +46,7 @@ defmodule Services.Supervisor do
   """
   @spec stop_service(module()) :: :ok | {:error, :not_found} | {:error, :cannot_stop}
   def stop_service(service) do
-    do_stop_service(service, can_service_stop(service))
+    do_stop_service(service, service_can_stop?(service))
   end
 
   @doc """
@@ -81,8 +84,8 @@ defmodule Services.Supervisor do
   - the service isn't running
   - another running services depends on it
   """
-  @spec can_service_stop(module()) :: boolean()
-  def can_service_stop(service) do
+  @spec service_can_stop?(module()) :: boolean()
+  def service_can_stop?(service) do
     needed_by =
       get_children()
       |> Enum.map(fn {mod, _} -> mod end)
@@ -95,6 +98,14 @@ defmodule Services.Supervisor do
   @impl true
   @spec init(term()) :: {:ok, DynamicSupervisor.sup_flags()}
   def init(_), do: DynamicSupervisor.init(strategy: :one_for_one)
+
+  @spec start_services([module()]) :: [DynamicSupervisor.on_start_child()]
+  defp start_services(services) do
+    services
+    |> Enum.map(&wait_til_not_starting/1)
+    |> Enum.filter(&(get_service_status(&1) == :stopped))
+    |> Enum.map(&do_start_service/1)
+  end
 
   @spec do_start_service(module()) :: DynamicSupervisor.on_start_child()
   defp do_start_service(service) do

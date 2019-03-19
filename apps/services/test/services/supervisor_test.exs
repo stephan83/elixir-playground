@@ -35,24 +35,24 @@ defmodule Services.SupervisorTest do
     end
   end
 
-  describe "can_service_stop" do
+  describe "service_can_stop?" do
     test "returns false when a service is stopped" do
-      assert Sup.can_service_stop(Log) == false
-      assert Sup.can_service_stop(Loop) == false
-      assert Sup.can_service_stop(Sequence) == false
+      assert !Sup.service_can_stop?(Log)
+      assert !Sup.service_can_stop?(Loop)
+      assert !Sup.service_can_stop?(Sequence)
     end
 
     test "returns true when a service is running but not needed" do
       Sup.start_service(Loop)
 
-      assert Sup.can_service_stop(Loop) == true
+      assert Sup.service_can_stop?(Loop)
     end
 
     test "returns false when a service is running but needed" do
       Sup.start_service(Loop)
 
-      assert Sup.can_service_stop(Log) == false
-      assert Sup.can_service_stop(Sequence) == false
+      assert !Sup.service_can_stop?(Log)
+      assert !Sup.service_can_stop?(Sequence)
     end
   end
 end

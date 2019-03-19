@@ -45,10 +45,10 @@ defmodule Services.Application do
     require Logger
 
     status = Services.Supervisor.get_service_status(service)
-    can_stop = Services.Supervisor.can_service_stop(service)
+    can_stop = Services.Supervisor.service_can_stop?(service)
 
     Logger.info(
-      "#{inspect(service)} status: #{inspect(status)}, can_service_stop: #{ inspect(can_stop) }"
+      "#{inspect(service)} status: #{inspect(status)}, can_service_stop: #{inspect(can_stop)}"
     )
   end
 end

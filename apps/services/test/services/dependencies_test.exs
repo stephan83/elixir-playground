@@ -52,8 +52,8 @@ defmodule Services.DependenciesTest do
              ]
     end
 
-    test "throws an exception if there are cyclic dependencies" do
-      assert_raise RuntimeError, fn -> Dependencies.topological_sort(ModuleF) end
+    test "returns an error if there is a cyclic dependency" do
+      assert Dependencies.topological_sort(ModuleF) == {:error, :cyclic_dependency}
     end
   end
 end
