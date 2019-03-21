@@ -3,7 +3,6 @@ defmodule Services.Example.Sequence do
   Sequence is an example service that increments a number when calling `next/0`.
   """
 
-  use Services.Service
   use Agent
 
   @name __MODULE__
@@ -11,8 +10,8 @@ defmodule Services.Example.Sequence do
   @doc """
   Starts the service.
   """
-  @impl true
-  def start_link(), do: Agent.start_link(fn -> 0 end, name: @name)
+  @spec start_link(term) :: Agent.on_start()
+  def start_link(_opts), do: Agent.start_link(fn -> 0 end, name: @name)
 
   @doc """
   Returns the next number in the sequence.

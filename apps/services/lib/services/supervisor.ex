@@ -6,13 +6,20 @@ defmodule Services.Supervisor do
   It also makes sure a service isn't needed by another service before stopping it.
   """
 
+  # TODO: monitor
+
   use DynamicSupervisor
 
-  alias Services.Dependencies
+  alias Services.{Dependencies, KV}
 
   require Logger
 
   @name __MODULE__
+
+  @typedoc """
+  The spec of a service is just a `child_spec`.
+  """
+  @type service_spec :: Supervisor.child_spec() | {module, term} | module
 
   @typedoc """
   The status of a service.
@@ -21,74 +28,86 @@ defmodule Services.Supervisor do
   """
   @type status :: :stopped | :starting | pid()
 
+  @typedoc """
+  The type returned when starting a service.
+  """
+  @type on_start_service :: [DynamicSupervisor.on_start_child()] | Dependencies.cyclic_error()
+
+  @typedoc """
+  The type returned when stopping a serivce.
+  """
+  @type on_stop_service :: :ok | {:error, :not_found} | {:error, :cannot_stop}
+
   @doc """
   Starts the supervisor.
   """
-  @spec start_link(term) :: Supervisor.on_start()
-  def start_link(_ \\ nil) do
-    DynamicSupervisor.start_link(@name, nil, name: @name)
+  @spec start_link(term()) :: Supervisor.on_start()
+  def start_link(_opts) do
+    with res = {:ok, _} <- DynamicSupervisor.start_link(@name, nil, name: @name),
+         {:ok, _} <- DynamicSupervisor.start_child(@name, KV) do
+      res
+    end
   end
 
   @doc """
   Starts a service and any needed dependencies.
   """
-  @spec start_service(module()) ::
-          [DynamicSupervisor.on_start_child()] | Dependencies.cyclic_error()
+  @spec start_service(service_spec()) :: on_start_service()
   def start_service(service) do
-    case Dependencies.topological_sort(service) do
-      err = {:error, _} -> err
-      deps -> start_services(deps)
+    with {:ok, deps} <- Dependencies.topological_sort(service) do
+      deps
+      |> Enum.map(&wait_til_not_starting/1)
+      |> Enum.filter(&(get_service_status(&1) == :stopped))
+      |> Enum.map(&do_start_service/1)
     end
   end
 
   @doc """
   Stops a service.
   """
-  @spec stop_service(module()) :: :ok | {:error, :not_found} | {:error, :cannot_stop}
+  @spec stop_service(service_spec()) :: on_stop_service()
   def stop_service(service) do
-    do_stop_service(service, service_can_stop?(service))
+    service = Supervisor.child_spec(service, [])
+
+    stop_service(service, service_can_stop?(service))
   end
 
   @doc """
   Stops all services.
   """
-  @spec stop_all_services() :: [:ok]
+  @spec stop_all_services() :: :ok
   def stop_all_services() do
-    stoppable = get_stoppable_services()
-
-    if length(stoppable) > 0 do
-      Enum.map(stoppable, &stop_service/1) ++ stop_all_services()
+    with stoppable = [_ | _] <- get_stoppable_services() do
+      Enum.each(stoppable, &stop_service/1)
+      stop_all_services()
     else
-      []
+      _ -> :ok
     end
   end
 
   @doc """
   Returns the pid of a service.
   """
-  @spec get_service_pid(module()) :: pid() | nil
+  @spec get_service_pid(service_spec()) :: pid() | nil
   def get_service_pid(service) do
-    Enum.find_value(get_children(), fn child ->
-      case child do
-        {^service, status} when is_pid(status) -> status
-        _ -> nil
-      end
-    end)
+    service = Supervisor.child_spec(service, [])
+
+    status = get_service_status(service)
+    if is_pid(status), do: status
   end
 
   @doc """
   Returns the status of a service.
   """
-  @spec get_service_status(module()) :: status()
+  @spec get_service_status(service_spec()) :: status()
   def get_service_status(service) do
-    find_status = fn child ->
-      case child do
-        {^service, status} -> status
-        _ -> nil
-      end
-    end
+    service = Supervisor.child_spec(service, [])
 
-    Enum.find_value(get_children(), find_status) || :stopped
+    with status when status != nil <- KV.get(service) do
+      status
+    else
+      _ -> :stopped
+    end
   end
 
   @doc """
@@ -98,48 +117,43 @@ defmodule Services.Supervisor do
   - the service isn't running
   - another running services depends on it
   """
-  @spec service_can_stop?(module()) :: boolean()
+  @spec service_can_stop?(service_spec()) :: boolean()
   def service_can_stop?(service) do
-    needed_by =
-      get_children()
-      |> Enum.map(fn {mod, _} -> mod end)
-      |> Enum.filter(&(&1 != service))
-      |> Enum.find(&(service in apply(&1, :needs, [])))
+    service = Supervisor.child_spec(service, [])
 
-    needed_by == nil and get_service_pid(service) != nil
+    if get_service_status(service) == :stopped do
+      false
+    else
+      Enum.find(get_running_services(), fn s ->
+        service in Services.Dependencies.get_deps(s)
+      end) == nil
+    end
   end
 
+  @doc false
   @impl true
   @spec init(term()) :: {:ok, DynamicSupervisor.sup_flags()}
   def init(_), do: DynamicSupervisor.init(strategy: :one_for_one)
 
-  @spec start_services([module()]) :: [DynamicSupervisor.on_start_child()]
-  defp start_services(services) do
-    services
-    |> Enum.map(&wait_til_not_starting/1)
-    |> Enum.filter(&(get_service_status(&1) == :stopped))
-    |> Enum.map(&do_start_service/1)
-  end
-
-  @spec do_start_service(module()) :: DynamicSupervisor.on_start_child()
+  @spec do_start_service(service_spec()) :: DynamicSupervisor.on_start_child()
   defp do_start_service(service) do
     Logger.info("starting #{inspect(service)}")
+    KV.put(service, :starting)
 
-    DynamicSupervisor.start_child(@name, %{
-      id: service,
-      start: {service, :start_link, []},
-      restart: :transient
-    })
+    with res = {:ok, pid} <- DynamicSupervisor.start_child(@name, service) do
+      KV.put(pid, service)
+      KV.put(service, pid)
+      res
+    end
   end
 
-  @spec wait_til_not_starting(module()) :: module()
+  @spec wait_til_not_starting(service_spec()) :: service_spec()
   defp wait_til_not_starting(service) do
     wait_til_not_starting(service, get_service_status(service))
   end
 
-  @spec wait_til_not_starting(module(), status()) :: module()
+  @spec wait_til_not_starting(service_spec(), status()) :: service_spec()
   defp wait_til_not_starting(service, :starting) do
-    :timer.sleep(100)
     wait_til_not_starting(service)
   end
 
@@ -147,36 +161,37 @@ defmodule Services.Supervisor do
     service
   end
 
-  @spec do_stop_service(module(), boolean()) ::
-          :ok | {:error, :not_found} | {:error, :cannot_stop}
-  defp do_stop_service(_service, false) do
+  @spec stop_service(service_spec(), boolean()) :: on_stop_service()
+  defp stop_service(_service, false) do
     {:error, :cannot_stop}
   end
 
-  defp do_stop_service(service, true) do
+  defp stop_service(service, true) do
     Logger.info("stopping #{inspect(service)}")
     pid = get_service_pid(service)
-    DynamicSupervisor.terminate_child(@name, pid)
+
+    with :ok <- DynamicSupervisor.terminate_child(@name, pid) do
+      KV.delete(pid)
+      KV.delete(service)
+      :ok
+    end
   end
 
-  @spec get_children() :: [{module(), status()}]
-  defp get_children() do
+  @spec get_running_services() :: [{service_spec(), status()}]
+  defp get_running_services() do
     children = DynamicSupervisor.which_children(@name)
 
-    Enum.map(children, fn {_, status, _, [service]} ->
-      {service, convert_child_status(status)}
-    end)
+    for {_, pid, _, [module]} when module != KV <- children do
+      if is_pid(pid) do
+        KV.get(pid)
+      else
+        get_running_services()
+      end
+    end
   end
 
-  @spec convert_child_status(term()) :: status()
-  defp convert_child_status(status) when is_pid(status), do: status
-  defp convert_child_status(_status), do: :starting
-
-  @spec get_stoppable_services() :: [module()]
+  @spec get_stoppable_services() :: [service_spec()]
   defp get_stoppable_services() do
-    get_children()
-    |> Enum.map(fn {service, _} -> service end)
-    |> Enum.map(&wait_til_not_starting/1)
-    |> Enum.filter(&service_can_stop?/1)
+    Enum.filter(get_running_services(), &service_can_stop?/1)
   end
 end

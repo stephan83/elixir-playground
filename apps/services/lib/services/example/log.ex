@@ -3,7 +3,6 @@ defmodule Services.Example.Log do
   Log is an example service using GenServer.
   """
 
-  use Services.Service
   use GenServer
 
   require Logger
@@ -13,22 +12,17 @@ defmodule Services.Example.Log do
   @doc """
   Starts the service.
   """
-  @impl true
-  def start_link() do
-    GenServer.start(@name, nil, name: @name)
-  end
+  def start_link(_opts), do: GenServer.start(@name, nil, name: @name)
 
+  @doc false
   @impl true
-  def init(_) do
-    {:ok, nil}
-  end
+  @spec init(any()) :: {:ok, nil}
+  def init(_), do: {:ok, nil}
 
   @doc """
   Outputs an info log message.
   """
-  def info(msg) do
-    GenServer.cast(@name, {:info, msg})
-  end
+  def info(msg), do: GenServer.cast(@name, {:info, msg})
 
   @impl true
   def handle_cast({:info, msg}, _) do
