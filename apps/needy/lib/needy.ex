@@ -139,9 +139,7 @@ defmodule Needy do
   @impl true
   def init(opts) do
     supervisor = Keyword.get(opts, :supervisor, {DynamicSupervisor, strategy: :one_for_one})
-    specs = %{}
-    refs = %{}
-    {:ok, {supervisor, specs, refs}}
+    {:ok, {supervisor, %{}, %{}}}
   end
 
   # Server Callbacks
