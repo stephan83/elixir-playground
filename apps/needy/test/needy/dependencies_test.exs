@@ -1,9 +1,9 @@
-defmodule Services.DependenciesTest do
+defmodule Needy.DependenciesTest do
   use ExUnit.Case, async: true
 
-  alias Services.Dependencies
+  alias Needy.Dependencies
 
-  alias Services.DependenciesTest.{
+  alias Needy.DependenciesTest.{
     ModuleA,
     ModuleB,
     ModuleC,
@@ -62,24 +62,24 @@ defmodule Services.DependenciesTest do
     end
 
     test "handles dynamic dependencies" do
-      service = {ModuleH, needs: [ModuleE]}
+      spec = {ModuleH, needs: [ModuleE]}
 
       expected =
-        [ModuleE, service]
+        [ModuleE, spec]
         |> Enum.map(&Supervisor.child_spec(&1, []))
 
-      assert Dependencies.topological_sort(service) == {:ok, expected}
+      assert Dependencies.topological_sort(spec) == {:ok, expected}
     end
 
     test "handles nested dynamic dependencies" do
-      serviceB = {ModuleH, needs: [ModuleE]}
-      serviceA = {ModuleH, needs: [serviceB]}
+      specB = {ModuleH, needs: [ModuleE]}
+      specA = {ModuleH, needs: [specB]}
 
       expected =
-        [ModuleE, serviceB, serviceA]
+        [ModuleE, specB, specA]
         |> Enum.map(&Supervisor.child_spec(&1, []))
 
-      assert Dependencies.topological_sort(serviceA) == {:ok, expected}
+      assert Dependencies.topological_sort(specA) == {:ok, expected}
     end
 
     test "returns an error if there is a cyclic dependency" do
@@ -88,7 +88,7 @@ defmodule Services.DependenciesTest do
   end
 
   describe "get_deps/1" do
-    test "returns the direct dependencies of a service" do
+    test "returns the direct dependencies of a spec" do
       expected =
         [ModuleB, ModuleC]
         |> Enum.map(&Supervisor.child_spec(&1, []))
@@ -96,7 +96,7 @@ defmodule Services.DependenciesTest do
       assert Dependencies.get_deps(ModuleA) == expected
     end
 
-    test "returns an empty list if a service doesn't specify dependencies" do
+    test "returns an empty list if a spec doesn't specify dependencies" do
       assert Dependencies.get_deps(ModuleE) == []
     end
   end

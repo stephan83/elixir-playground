@@ -1,6 +1,6 @@
-defmodule Services.Example.Log do
+defmodule Needy.Example.Log do
   @moduledoc """
-  Log is an example service using GenServer.
+  Log is an example server using GenServer.
   """
 
   use GenServer
@@ -10,7 +10,7 @@ defmodule Services.Example.Log do
   @name __MODULE__
 
   @doc """
-  Starts the service.
+  Starts the server.
   """
   def start_link(_opts), do: GenServer.start(@name, nil, name: @name)
 

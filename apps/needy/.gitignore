@@ -20,6 +20,5 @@ erl_crash.dump
 *.ez
 
 # Ignore package tarball (built via "mix hex.build").
-services-*.tar
+needy-*.tar
 
-.elixir_ls

@@ -1,6 +1,6 @@
-defmodule Services.Example.Sequence do
+defmodule Needy.Example.Sequence do
   @moduledoc """
-  Sequence is an example service that increments a number when calling `next/0`.
+  Sequence is an example server that increments a number when calling `next/0`.
   """
 
   use Agent
@@ -8,7 +8,7 @@ defmodule Services.Example.Sequence do
   @name __MODULE__
 
   @doc """
-  Starts the service.
+  Starts the server.
   """
   @spec start_link(term) :: Agent.on_start()
   def start_link(_opts), do: Agent.start_link(fn -> 0 end, name: @name)

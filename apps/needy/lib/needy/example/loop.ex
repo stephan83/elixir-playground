@@ -1,33 +1,33 @@
-defmodule Services.Example.Loop do
+defmodule Needy.Example.Loop do
   @moduledoc """
-  Loop is an example service that periodically logs a number from the Sequence service.
+  Loop is an example server that periodically logs a number from the Sequence server.
   """
 
-  alias Services.Example.{Sequence, Log}
+  alias Needy.Example.{Sequence, Log}
 
   @name __MODULE__
 
   @doc """
-  Returns the `child_spec` of the service.
+  Returns the `child_spec` of the server.
   """
-  @spec child_spec(term) :: Supervisor.child_spec()
+  @spec child_spec(term) :: Supervisor.child_spec
   def child_spec(_opts) do
     %{id: @name, start: {@name, :start_link, []}}
   end
 
   @doc """
-  Starts the service.
+  Starts the server.
   """
-  @spec start_link() :: {:ok, pid()}
+  @spec start_link() :: {:ok, pid}
   def start_link() do
     pid = spawn_link(@name, :loop, [])
     {:ok, pid}
   end
 
   @doc """
-  Needs returns the services that should be started before this one.
+  Needs returns the servers that should be started before this one.
   """
-  @spec needs() :: [Services.Dependencies.service()]
+  @spec needs() :: [Needy.Dependencies.spec]
   def needs(), do: [Sequence, Log]
 
   @spec loop() :: nil
