@@ -123,7 +123,7 @@ defmodule Needy do
   @spec lookup(server, spec) :: server | nil
   def lookup(needy \\ @name, spec) do
     spec = Supervisor.child_spec(spec, [])
-    GenServer.call(needy, {:pid, spec})
+    GenServer.call(needy, {:lookup, spec})
   end
 
   @doc """
@@ -167,7 +167,7 @@ defmodule Needy do
 
   @doc false
   @impl true
-  def handle_call({:pid, spec}, _from, {_supervisor, specs, _refs} = state) do
+  def handle_call({:lookup, spec}, _from, {_supervisor, specs, _refs} = state) do
     {:reply, Map.get(specs, spec), state}
   end
 

@@ -55,7 +55,7 @@ defmodule Needy.Dependencies do
   defp do_topological_sort(spec, marks, _mark) do
     with deps = get_deps(spec),
          marks = Map.put(marks, spec, :visiting),
-         {:ok, deps, marks} <- Enum.reduce(deps, {:ok, [], marks}, &reduce/2) do
+         {:ok, deps, marks} <- Enum.reduce_while(deps, {:ok, [], marks}, &reduce/2) do
       {:ok, deps ++ [spec], Map.put(marks, spec, :visited)}
     end
   end
@@ -64,8 +64,8 @@ defmodule Needy.Dependencies do
 
   defp reduce(spec, {:ok, deps, marks}) do
     case do_topological_sort(spec, marks, marks[spec]) do
-      {:ok, new_deps, new_marks} -> {:ok, deps ++ new_deps, new_marks}
-      err -> err
+      {:ok, new_deps, new_marks} -> {:cont, {:ok, deps ++ new_deps, new_marks}}
+      err -> {:halt, err}
     end
   end
 end
