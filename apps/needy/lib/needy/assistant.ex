@@ -85,6 +85,8 @@ defmodule Needy.Assistant do
   defmodule State do
     @moduledoc false
 
+    alias Needy.{Assistant, Dependencies}
+
     defstruct [
       :supervisor,
       specs: %{},
@@ -92,6 +94,14 @@ defmodule Needy.Assistant do
       stop_dependents: false,
       restart_dependents: true
     ]
+
+    @type t :: %__MODULE__{
+            supervisor: Assistant.server(),
+            specs: %{optional(Dependencies.child_spec()) => pid},
+            refs: %{optional(reference) => Dependencies.child_spec()},
+            stop_dependents: boolean,
+            restart_dependents: boolean
+          }
   end
 
   # ==============================================================================================
@@ -190,6 +200,8 @@ defmodule Needy.Assistant do
   # Server Callbacks
   # ==============================================================================================
 
+  @spec handle_call(term, GenServer.from(), State.t()) :: {:reply, term, State.t()}
+
   @doc false
   @impl true
   def handle_call({:start, spec}, _from, %State{} = state) do
@@ -221,6 +233,8 @@ defmodule Needy.Assistant do
     {:reply, do_status(spec, state), state}
   end
 
+  @spec handle_info(:timeout | term, State.t()) :: {:noreply, State.t()}
+
   @doc false
   @impl true
   def handle_info({:DOWN, ref, :process, _pid, reason}, %State{} = state) do
@@ -251,6 +265,7 @@ defmodule Needy.Assistant do
   # Internals
   # ==============================================================================================
 
+  @spec do_start(Dependencies.child_spec(), State.t()) :: {on_start, State.t()}
   defp do_start(spec, %State{} = state) do
     with {:ok, deps} <- Dependencies.dependencies(spec) do
       deps
@@ -261,6 +276,7 @@ defmodule Needy.Assistant do
     end
   end
 
+  @spec do_stop(Dependencies.child_spec(), State.t()) :: on_stop
   defp do_stop(spec, %State{supervisor: supervisor, specs: specs} = state) do
     Logger.info("stopping #{inspect(spec)}")
 
@@ -272,6 +288,7 @@ defmodule Needy.Assistant do
     end
   end
 
+  @spec do_can_stop?(Dependencies.child_spec(), State.t()) :: boolean
   defp do_can_stop?(spec, %State{specs: specs} = state) do
     if do_status(spec, state) == :stopped do
       false
@@ -284,6 +301,7 @@ defmodule Needy.Assistant do
     end
   end
 
+  @spec do_status(Dependencies.child_spec(), State.t()) :: status
   defp do_status(spec, %State{specs: specs}) do
     with pid when is_pid(pid) <- Map.get(specs, spec) do
       case Process.info(pid, :status) do
@@ -301,6 +319,7 @@ defmodule Needy.Assistant do
     end
   end
 
+  @spec filter_stopped(Dependencies.child_spec(), State.t()) :: boolean
   defp filter_stopped(spec, %State{} = state) do
     case do_status(spec, state) do
       :stopped -> true
@@ -309,26 +328,44 @@ defmodule Needy.Assistant do
     end
   end
 
-  defp start_reducer(spec, {_last, %State{} = state}) do
+  @typep start_reducer_success :: {{:ok, pid}, State.t()}
+  @typep start_reducer_error :: {{:error, term}, State.t()}
+  @spec start_reducer(Dependencies.child_spec(), start_reducer_success) ::
+          {:cont, start_reducer_success}
+          | {:halt, start_reducer_error}
+  defp start_reducer(spec, {_last, %State{} = state} = acc) do
     Logger.info("starting #{inspect(spec)}")
 
-    with {:ok, pid} <- DynamicSupervisor.start_child(state.supervisor, spec) do
-      specs = Map.put(state.specs, spec, pid)
-      ref = Process.monitor(pid)
-      refs = Map.put(state.refs, ref, spec)
-      state = %State{state | specs: specs, refs: refs}
-      {:cont, {{:ok, pid}, state}}
-    else
-      err -> {:halt, {err, state}}
+    case DynamicSupervisor.start_child(state.supervisor, spec) do
+      {:ok, pid} ->
+        {:cont, {{:ok, pid}, add_child(spec, pid, state)}}
+
+      {:ok, pid, _} ->
+        {:cont, {{:ok, pid}, add_child(spec, pid, state)}}
+
+      :ignore ->
+        {:cont, acc}
+
+      err ->
+        {:halt, {err, state}}
     end
   end
 
+  @spec add_child(Dependencies.child_spec(), pid, State.t()) :: State.t()
+  defp add_child(spec, pid, %State{specs: specs, refs: refs} = state) do
+    specs = Map.put(specs, spec, pid)
+    ref = Process.monitor(pid)
+    refs = Map.put(refs, ref, spec)
+    %State{state | specs: specs, refs: refs}
+  end
+
+  @spec stop_dependents(Dependencies.child_spec(), State.t(), atom) :: :ok
   defp stop_dependents(spec, %State{specs: specs}, reason) do
     all_specs = Map.keys(specs)
     {:ok, dependents} = Dependencies.dependents(spec, all_specs)
 
     dependents
     |> Enum.map(&Map.get(specs, &1))
-    |> Enum.map(&Process.exit(&1, reason))
+    |> Enum.each(&Process.exit(&1, reason))
   end
 end

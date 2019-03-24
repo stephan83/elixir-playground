@@ -81,6 +81,15 @@ defmodule Needy.Dependencies do
   # Internals
   # ==============================================================================================
 
+  @typep get_children :: (child_spec -> [child_spec])
+  @typep mark :: :visited | :visiting | nil
+  @typep mark_map :: %{optional(child_spec) => mark}
+  @typep reduce_success :: {:ok, [child_spec], mark_map}
+  @typep reducer ::
+           (child_spec, reduce_success -> {:cont, reduce_success} | {:halt, cyclic_error})
+
+  @spec do_topological_sort(child_spec, get_children, mark_map, mark) ::
+          reduce_success | cyclic_error
   defp do_topological_sort(_spec, _get_children, marks, :visited), do: {:ok, [], marks}
 
   defp do_topological_sort(_spec, _get_children, _marks, :visiting),
@@ -96,16 +105,16 @@ defmodule Needy.Dependencies do
     end
   end
 
+  @spec make_reducer(get_children) :: reducer
   defp make_reducer(get_children) do
-    fn
-      spec, {:ok, deps, marks} ->
-        case do_topological_sort(spec, get_children, marks, marks[spec]) do
-          {:ok, new_deps, new_marks} -> {:cont, {:ok, deps ++ new_deps, new_marks}}
-          err -> {:halt, err}
-        end
+    fn spec, {:ok, deps, marks} ->
+      case do_topological_sort(spec, get_children, marks, marks[spec]) do
+        {:ok, new_deps, new_marks} ->
+          {:cont, {:ok, deps ++ new_deps, new_marks}}
 
-      _spec, err = {:error, _reason} ->
-        err
+        err ->
+          {:halt, err}
+      end
     end
   end
 end
