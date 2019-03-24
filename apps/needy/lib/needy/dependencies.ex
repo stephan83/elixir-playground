@@ -90,10 +90,13 @@ defmodule Needy.Dependencies do
 
   @spec do_topological_sort(child_spec, get_children, mark_map, mark) ::
           reduce_success | cyclic_error
-  defp do_topological_sort(_spec, _get_children, marks, :visited), do: {:ok, [], marks}
+  defp do_topological_sort(_spec, _get_children, marks, :visited) do
+    {:ok, [], marks}
+  end
 
-  defp do_topological_sort(_spec, _get_children, _marks, :visiting),
-    do: {:error, :cyclic_dependency}
+  defp do_topological_sort(_spec, _get_children, _marks, :visiting) do
+    {:error, :cyclic_dependency}
+  end
 
   defp do_topological_sort(spec, get_children, marks, _mark) do
     with children = get_children.(spec),

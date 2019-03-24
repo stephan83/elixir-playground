@@ -79,7 +79,7 @@ defmodule Needy.Assistant do
   @type server :: GenServer.server()
   @type spec :: Dependencies.spec()
   @type on_start :: Supervisor.on_start_child() | Dependencies.cyclic_error() | nil
-  @type on_stop :: :ok | {:error, :not_found} | {:error, :needed}
+  @type on_stop :: :ok | {:error, :not_found | :needed}
   @type status :: :exiting | :running | :stopped
 
   defmodule State do
@@ -133,6 +133,7 @@ defmodule Needy.Assistant do
 
   @doc false
   @impl true
+  @spec init(keyword) :: {:ok, State.t()}
   def init(opts) do
     opts =
       @default_opts
@@ -296,8 +297,7 @@ defmodule Needy.Assistant do
       specs
       |> Map.keys()
       |> Enum.map(&Dependencies.needs/1)
-      |> Enum.find(&Enum.member?(&1, spec))
-      |> is_nil()
+      |> Enum.all?(&(spec not in &1))
     end
   end
 
