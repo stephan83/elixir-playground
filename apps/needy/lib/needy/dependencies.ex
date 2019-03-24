@@ -23,8 +23,8 @@ defmodule Needy.Dependencies do
   def dependencies(spec) do
     spec = Supervisor.child_spec(spec, [])
 
-    with {:ok, deps, _} <- do_topological_sort(spec, &needs/1, %{}, nil) do
-      {:ok, deps}
+    with {:ok, deps, _} <- do_topological_sort(spec, &needs/1, [], %{}, nil) do
+      {:ok, Enum.reverse(deps)}
     end
   end
 
@@ -38,8 +38,8 @@ defmodule Needy.Dependencies do
     spec = Supervisor.child_spec(spec, [])
     get_children = &needed_by(&1, all_specs)
 
-    with {:ok, deps, _} <- do_topological_sort(spec, get_children, %{}, nil) do
-      {:ok, deps}
+    with {:ok, deps, _} <- do_topological_sort(spec, get_children, [], %{}, nil) do
+      {:ok, Enum.reverse(deps)}
     end
   end
 
@@ -84,36 +84,38 @@ defmodule Needy.Dependencies do
   @typep get_children :: (child_spec -> [child_spec])
   @typep mark :: :visited | :visiting | nil
   @typep mark_map :: %{optional(child_spec) => mark}
-  @typep reduce_success :: {:ok, [child_spec], mark_map}
-  @typep reducer ::
-           (child_spec, reduce_success -> {:cont, reduce_success} | {:halt, cyclic_error})
+  @typep reduce_ok :: {:ok, [child_spec], mark_map}
+  @typep reducer :: (child_spec, reduce_ok -> {:cont, reduce_ok} | {:halt, cyclic_error})
 
-  @spec do_topological_sort(child_spec, get_children, mark_map, mark) ::
-          reduce_success | cyclic_error
-  defp do_topological_sort(_spec, _get_children, marks, :visited) do
-    {:ok, [], marks}
+  @spec do_topological_sort(child_spec, get_children, [child_spec], mark_map, mark) ::
+          reduce_ok | cyclic_error
+  defp do_topological_sort(_spec, _get_children, deps, marks, :visited) do
+    {:ok, deps, marks}
   end
 
-  defp do_topological_sort(_spec, _get_children, _marks, :visiting) do
+  defp do_topological_sort(_spec, _get_children, _deps, _marks, :visiting) do
     {:error, :cyclic_dependency}
   end
 
-  defp do_topological_sort(spec, get_children, marks, _mark) do
-    with children = get_children.(spec),
-         marks = Map.put(marks, spec, :visiting),
-         acc = {:ok, [], marks},
-         reducer = make_reducer(get_children),
-         {:ok, children, marks} <- Enum.reduce_while(children, acc, reducer) do
-      {:ok, children ++ [spec], Map.put(marks, spec, :visited)}
+  defp do_topological_sort(spec, get_children, deps, marks, nil) do
+    children = get_children.(spec)
+    marks = Map.put(marks, spec, :visiting)
+    acc = {:ok, deps, marks}
+    reducer = make_reducer(get_children)
+
+    with {:ok, deps, marks} <- Enum.reduce_while(children, acc, reducer) do
+      deps = [spec | deps]
+      marks = Map.put(marks, spec, :visited)
+      {:ok, deps, marks}
     end
   end
 
   @spec make_reducer(get_children) :: reducer
   defp make_reducer(get_children) do
     fn spec, {:ok, deps, marks} ->
-      case do_topological_sort(spec, get_children, marks, marks[spec]) do
-        {:ok, new_deps, new_marks} ->
-          {:cont, {:ok, deps ++ new_deps, new_marks}}
+      case do_topological_sort(spec, get_children, deps, marks, marks[spec]) do
+        {:ok, deps, marks} ->
+          {:cont, {:ok, deps, marks}}
 
         err ->
           {:halt, err}
