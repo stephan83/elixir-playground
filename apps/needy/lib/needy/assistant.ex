@@ -1,10 +1,14 @@
-defmodule Needy do
+defmodule Needy.Assistant do
   @moduledoc """
-  Needy helps dealing with server dependencies.
+  An assistant helps a `DynamicSupervisor` deal with process dependencies.
 
-  A server specifies which servers it needs. When `Needy` starts a server, it makes sure all
-  needed dependencies are started in correct order (using topological sort). Similarly it prevents
-  stopping a server if it is needed by other running servers.
+  A module specifies which processes it needs. When `Assistant` starts a `child_spec`, it makes
+  sure all needed processes are started in correct order (using topological sort). Similarly it
+  prevents stopping a process if it is needed by other running processes.
+
+  To declare that a module has depedendencies, it should export a `needs` function that returns
+  a list of `child_spec`. Its arity can be either zero or the same as the `start_link` function,
+  in which case it will receive the same arguments.
 
   ### Example
 
@@ -34,7 +38,7 @@ defmodule Needy do
 
   Then you can define another server that depends on it:
 
-      defmodule Service do
+      defmodule Sequence do
         use Agent, restart: :temporary
 
         @name __MODULE__
@@ -46,18 +50,20 @@ defmodule Needy do
         def needs(_opts), do: [Log]
 
         def next do
-          LogService.info("Next number requested")
+          Log.info("Next number requested")
           Agent.get_and_update(@name, &{&1, &1 + 1})
         end
       end
 
-  Now you can start the server:
+  To run, start a `DynamicSupervisor` and pass it to `Assistant`. Now launch children using
+  `start/2`.
 
       sup = start_supervised!({DynamicSupervisor, strategy: :one_for_one})
-      start_supervised!({Needy, supervisor: sup, stop_dependents: true, restart_dependents: true})
-      Needy.start(SequenceService)
+      opts = [supervisor: sup, stop_dependents: true, restart_dependents: true]
+      start_supervised!({assistant.Assistant, opts})
+      assistant.start(Sequence)
 
-  The service it depends on will automatically be started.
+  The processes it depends on will automatically be started.
   """
 
   use GenServer
@@ -76,17 +82,23 @@ defmodule Needy do
   @type on_stop :: :ok | {:error, :not_found} | {:error, :needed}
   @type status :: :exiting | :running | :stopped
 
+  #===============================================================================================
   # Client API
+  #===============================================================================================
 
   @doc """
-  Starts a GenServer for Needy.
+  Starts the server.
 
   The `supervisor` option is mandatory and must be a `DynamicSupervisor`.
 
   The other options are:
 
   - stop_dependents: stop all dependents when a process stops (default `false`)
-  - restart_dependents: stop all dependents when a process unexpectedly stops (default `false`)
+  - restart_dependents: restart all dependents when a process unexpectedly stops (default `false`)
+
+  If either `stop_dependents` or `restart_dependents` are true, it makes sense for processes to
+  be started with a `:temporary` restart policy, otherwise it will conflict with the
+  `DynamicSupervisor`.
   """
   @spec start_link(supervisor: pid) :: GenServer.on_start() | {:error, :no_supervisor}
   def start_link(opts) do
@@ -110,57 +122,59 @@ defmodule Needy do
   end
 
   @doc """
-  Starts a server and its dependencies.
+  Starts a process and its dependencies.
 
-  It returns `nil` if no servers needed to be started.
+  It returns `nil` if no processes needed to be started.
   """
   @spec start(server, spec) :: on_start
-  def start(needy \\ @name, spec) do
+  def start(assistant \\ @name, spec) do
     spec = Supervisor.child_spec(spec, [])
-    GenServer.call(needy, {:start, spec})
+    GenServer.call(assistant, {:start, spec})
   end
 
   @doc """
-  Stops a server.
+  Stops a process.
 
-  It will fail if the server is needed by other running servers.
+  It will fail if the process is needed by other running processes.
   """
   @spec stop(server, spec) :: on_stop
-  def stop(needy \\ @name, spec) do
+  def stop(assistant \\ @name, spec) do
     spec = Supervisor.child_spec(spec, [])
-    GenServer.call(needy, {:stop, spec})
+    GenServer.call(assistant, {:stop, spec})
   end
 
   @doc """
-  Returns whether the services can be stopped.
+  Returns whether the process can be stopped.
 
-  It returns false if the server is not running or is needed by other running servers.
+  It returns false if the process is not running or is needed by other running processes.
   """
   @spec can_stop?(server, spec) :: boolean
-  def can_stop?(needy \\ @name, spec) do
+  def can_stop?(assistant \\ @name, spec) do
     spec = Supervisor.child_spec(spec, [])
-    GenServer.call(needy, {:can_stop?, spec})
+    GenServer.call(assistant, {:can_stop?, spec})
   end
 
   @doc """
-  Looks up a server by spec.
+  Looks up a process by spec.
   """
   @spec lookup(server, spec) :: server | nil
-  def lookup(needy \\ @name, spec) do
+  def lookup(assistant \\ @name, spec) do
     spec = Supervisor.child_spec(spec, [])
-    GenServer.call(needy, {:lookup, spec})
+    GenServer.call(assistant, {:lookup, spec})
   end
 
   @doc """
-  Gets the status of a server.
+  Gets the status of a process.
   """
   @spec status(server, spec) :: status
-  def status(needy \\ @name, spec) do
+  def status(assistant \\ @name, spec) do
     spec = Supervisor.child_spec(spec, [])
-    GenServer.call(needy, {:status, spec})
+    GenServer.call(assistant, {:status, spec})
   end
 
+  #===============================================================================================
   # Server Callbacks
+  #===============================================================================================
 
   @doc false
   @impl true
@@ -219,7 +233,9 @@ defmodule Needy do
     {:noreply, state}
   end
 
-  # Private Functions
+  #===============================================================================================
+  # Internals
+  #===============================================================================================
 
   defp do_start(spec, state) do
     with {:ok, deps} <- Dependencies.dependencies(spec) do

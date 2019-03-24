@@ -1,6 +1,9 @@
 defmodule Needy.Dependencies do
   @moduledoc """
   Contains types to deal with dependencies.
+
+  This module exposes functions to sort dependencies and dependents topologically. This is useful
+  to figure out in which orders things should be started or stopped.
   """
 
   @type child_spec :: Supervisor.child_spec()
@@ -63,7 +66,7 @@ defmodule Needy.Dependencies do
   end
 
   @doc """
-  Returns the direct dependents of a spec.
+  Returns the direct dependents of a spec given a list of specs.
   """
   @spec needed_by(spec, [spec]) :: [child_spec]
   def needed_by(spec, all_specs) do
@@ -73,6 +76,10 @@ defmodule Needy.Dependencies do
     |> Enum.map(&Supervisor.child_spec(&1, []))
     |> Enum.filter(&(spec in needs(&1)))
   end
+
+  #===============================================================================================
+  # Internals
+  #===============================================================================================
 
   defp do_topological_sort(_spec, _get_children, marks, :visited), do: {:ok, [], marks}
 
