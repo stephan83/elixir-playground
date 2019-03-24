@@ -18,3 +18,8 @@ import_config "../apps/*/config/config.exs"
 #       level: :info,
 #       format: "$date $time [$level] $metadata$message\n",
 #       metadata: [:user_id]
+
+if Mix.env == :dev do
+  config :mix_test_watch,
+    clear: true
+end

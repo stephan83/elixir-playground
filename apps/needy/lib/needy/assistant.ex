@@ -92,7 +92,7 @@ defmodule Needy.Assistant do
       specs: %{},
       refs: %{},
       stop_dependents: false,
-      restart_dependents: true
+      restart_dependents: false
     ]
 
     @type t :: %__MODULE__{
