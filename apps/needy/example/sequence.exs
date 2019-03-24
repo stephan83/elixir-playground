@@ -3,7 +3,7 @@ defmodule Needy.Example.Sequence do
   Sequence is an example server that increments a number when calling `next/0`.
   """
 
-  use Agent
+  use Agent, restart: :temporary
 
   @name __MODULE__
 

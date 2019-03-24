@@ -3,7 +3,7 @@ defmodule Needy.Example.Log do
   Log is an example server using GenServer.
   """
 
-  use GenServer
+  use GenServer, restart: :temporary
 
   require Logger
 

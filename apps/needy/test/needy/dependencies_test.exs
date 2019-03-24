@@ -13,6 +13,15 @@ defmodule Needy.DependenciesTest do
     ModuleG
   }
 
+  @normal_modules [
+    ModuleA,
+    ModuleB,
+    ModuleC,
+    ModuleD,
+    ModuleE,
+    ModuleF,
+  ]
+
   defmodule ModuleA do
     use Agent
     def needs(), do: [ModuleB, ModuleC]
@@ -52,13 +61,13 @@ defmodule Needy.DependenciesTest do
     def needs(opts), do: Keyword.get(opts, :needs, [])
   end
 
-  describe "topological_sort/1" do
+  describe "dependencies/1" do
     test "sorts dependencies in correct order" do
       expected =
         [ModuleB, ModuleE, ModuleD, ModuleC, ModuleA]
         |> Enum.map(&Supervisor.child_spec(&1, []))
 
-      assert Dependencies.topological_sort(ModuleA) == {:ok, expected}
+      assert Dependencies.dependencies(ModuleA) == {:ok, expected}
     end
 
     test "handles dynamic dependencies" do
@@ -68,7 +77,7 @@ defmodule Needy.DependenciesTest do
         [ModuleE, spec]
         |> Enum.map(&Supervisor.child_spec(&1, []))
 
-      assert Dependencies.topological_sort(spec) == {:ok, expected}
+      assert Dependencies.dependencies(spec) == {:ok, expected}
     end
 
     test "handles nested dynamic dependencies" do
@@ -79,25 +88,45 @@ defmodule Needy.DependenciesTest do
         [ModuleE, specB, specA]
         |> Enum.map(&Supervisor.child_spec(&1, []))
 
-      assert Dependencies.topological_sort(specA) == {:ok, expected}
+      assert Dependencies.dependencies(specA) == {:ok, expected}
     end
 
     test "returns an error if there is a cyclic dependency" do
-      assert Dependencies.topological_sort(ModuleF) == {:error, :cyclic_dependency}
+      assert Dependencies.dependencies(ModuleF) == {:error, :cyclic_dependency}
     end
   end
 
-  describe "get_deps/1" do
+  describe "dependents/1" do
+    test "sorts dependents in correct order" do
+      expected =
+        [ModuleA, ModuleC, ModuleD, ModuleE]
+        |> Enum.map(&Supervisor.child_spec(&1, []))
+
+      assert Dependencies.dependents(ModuleE, @normal_modules) == {:ok, expected}
+    end
+  end
+
+  describe "needs/1" do
     test "returns the direct dependencies of a spec" do
       expected =
         [ModuleB, ModuleC]
         |> Enum.map(&Supervisor.child_spec(&1, []))
 
-      assert Dependencies.get_deps(ModuleA) == expected
+      assert Dependencies.needs(ModuleA) == expected
     end
 
     test "returns an empty list if a spec doesn't specify dependencies" do
-      assert Dependencies.get_deps(ModuleE) == []
+      assert Dependencies.needs(ModuleE) == []
+    end
+  end
+
+  describe "needed_by/1" do
+    test "returns the direct dependents of a spec" do
+      expected =
+        [ModuleD]
+        |> Enum.map(&Supervisor.child_spec(&1, []))
+
+      assert Dependencies.needed_by(ModuleE, @normal_modules) == expected
     end
   end
 end

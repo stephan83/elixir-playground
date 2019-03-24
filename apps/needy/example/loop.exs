@@ -12,7 +12,7 @@ defmodule Needy.Example.Loop do
   """
   @spec child_spec(term) :: Supervisor.child_spec
   def child_spec(_opts) do
-    %{id: @name, start: {@name, :start_link, []}}
+    %{id: @name, start: {@name, :start_link, []}, restart: :temporary}
   end
 
   @doc """

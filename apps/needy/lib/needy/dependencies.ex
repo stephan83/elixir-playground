@@ -14,15 +14,28 @@ defmodule Needy.Dependencies do
   @doc """
   Returns dependencies in topological order.
 
-  Child specs can be started in the returned order to respect dependencies.
-
   The returned dependencies include the spec itself.
   """
-  @spec topological_sort(spec) :: {:ok, [child_spec]} | cyclic_error
-  def topological_sort(spec) do
+  @spec dependencies(spec) :: {:ok, [child_spec]} | cyclic_error
+  def dependencies(spec) do
     spec = Supervisor.child_spec(spec, [])
 
-    with {:ok, deps, _} <- do_topological_sort(spec, %{}, nil) do
+    with {:ok, deps, _} <- do_topological_sort(spec, &needs/1, %{}, nil) do
+      {:ok, deps}
+    end
+  end
+
+  @doc """
+  Returns dependents in topological order.
+
+  The returned dependents include the spec itself.
+  """
+  @spec dependents(spec, [spec]) :: {:ok, [child_spec]} | cyclic_error
+  def dependents(spec, all_specs) do
+    spec = Supervisor.child_spec(spec, [])
+    get_children = &needed_by(&1, all_specs)
+
+    with {:ok, deps, _} <- do_topological_sort(spec, get_children, %{}, nil) do
       {:ok, deps}
     end
   end
@@ -30,8 +43,8 @@ defmodule Needy.Dependencies do
   @doc """
   Returns the direct dependencies of a spec.
   """
-  @spec get_deps(spec) :: [child_spec]
-  def get_deps(spec) do
+  @spec needs(spec) :: [child_spec]
+  def needs(spec) do
     {module, _, args} = Supervisor.child_spec(spec, []).start
 
     deps =
@@ -49,23 +62,43 @@ defmodule Needy.Dependencies do
     Enum.map(deps, &Supervisor.child_spec(&1, []))
   end
 
-  defp do_topological_sort(_spec, marks, :visited), do: {:ok, [], marks}
-  defp do_topological_sort(_spec, _marks, :visiting), do: {:error, :cyclic_dependency}
+  @doc """
+  Returns the direct dependents of a spec.
+  """
+  @spec needed_by(spec, [spec]) :: [child_spec]
+  def needed_by(spec, all_specs) do
+    spec = Supervisor.child_spec(spec, [])
 
-  defp do_topological_sort(spec, marks, _mark) do
-    with deps = get_deps(spec),
+    all_specs
+    |> Enum.map(&Supervisor.child_spec(&1, []))
+    |> Enum.filter(&(spec in needs(&1)))
+  end
+
+  defp do_topological_sort(_spec, _get_children, marks, :visited), do: {:ok, [], marks}
+
+  defp do_topological_sort(_spec, _get_children, _marks, :visiting),
+    do: {:error, :cyclic_dependency}
+
+  defp do_topological_sort(spec, get_children, marks, _mark) do
+    with children = get_children.(spec),
          marks = Map.put(marks, spec, :visiting),
-         {:ok, deps, marks} <- Enum.reduce_while(deps, {:ok, [], marks}, &reduce/2) do
-      {:ok, deps ++ [spec], Map.put(marks, spec, :visited)}
+         acc = {:ok, [], marks},
+         reducer = make_reducer(get_children),
+         {:ok, children, marks} <- Enum.reduce_while(children, acc, reducer) do
+      {:ok, children ++ [spec], Map.put(marks, spec, :visited)}
     end
   end
 
-  defp reduce(_spec, err = {:error, _reason}), do: err
+  defp make_reducer(get_children) do
+    fn
+      spec, {:ok, deps, marks} ->
+        case do_topological_sort(spec, get_children, marks, marks[spec]) do
+          {:ok, new_deps, new_marks} -> {:cont, {:ok, deps ++ new_deps, new_marks}}
+          err -> {:halt, err}
+        end
 
-  defp reduce(spec, {:ok, deps, marks}) do
-    case do_topological_sort(spec, marks, marks[spec]) do
-      {:ok, new_deps, new_marks} -> {:cont, {:ok, deps ++ new_deps, new_marks}}
-      err -> {:halt, err}
+      _spec, err = {:error, _reason} ->
+        err
     end
   end
 end
