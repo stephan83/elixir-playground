@@ -19,27 +19,27 @@ defmodule Needy.DependenciesTest do
     ModuleC,
     ModuleD,
     ModuleE,
-    ModuleF,
+    ModuleF
   ]
 
   defmodule ModuleA do
     use Agent
-    def needs(), do: [ModuleB, ModuleC]
+    def needs, do: [ModuleB, ModuleC]
   end
 
   defmodule ModuleB do
     use Agent
-    def needs(), do: []
+    def needs, do: []
   end
 
   defmodule ModuleC do
     use Agent
-    def needs(), do: [ModuleB, ModuleD]
+    def needs, do: [ModuleB, ModuleD]
   end
 
   defmodule ModuleD do
     use Agent
-    def needs(), do: [ModuleE]
+    def needs, do: [ModuleE]
   end
 
   defmodule ModuleE do
@@ -48,12 +48,12 @@ defmodule Needy.DependenciesTest do
 
   defmodule ModuleF do
     use Agent
-    def needs(), do: [ModuleG]
+    def needs, do: [ModuleG]
   end
 
   defmodule ModuleG do
     use Agent
-    def needs(), do: [ModuleF, ModuleE]
+    def needs, do: [ModuleF, ModuleE]
   end
 
   defmodule ModuleH do
@@ -81,14 +81,14 @@ defmodule Needy.DependenciesTest do
     end
 
     test "handles nested dynamic dependencies" do
-      specB = {ModuleH, needs: [ModuleE]}
-      specA = {ModuleH, needs: [specB]}
+      spec_b = {ModuleH, needs: [ModuleE]}
+      spec_a = {ModuleH, needs: [spec_b]}
 
       expected =
-        [ModuleE, specB, specA]
+        [ModuleE, spec_b, spec_a]
         |> Enum.map(&Supervisor.child_spec(&1, []))
 
-      assert Dependencies.dependencies(specA) == {:ok, expected}
+      assert Dependencies.dependencies(spec_a) == {:ok, expected}
     end
 
     test "returns an error if there is a cyclic dependency" do

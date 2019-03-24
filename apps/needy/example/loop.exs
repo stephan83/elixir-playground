@@ -3,14 +3,14 @@ defmodule Needy.Example.Loop do
   Loop is an example server that periodically logs a number from the Sequence server.
   """
 
-  alias Needy.Example.{Sequence, Log}
+  alias Needy.Example.{Log, Sequence}
 
   @name __MODULE__
 
   @doc """
   Returns the `child_spec` of the server.
   """
-  @spec child_spec(term) :: Supervisor.child_spec
+  @spec child_spec(term) :: Supervisor.child_spec()
   def child_spec(_opts) do
     %{id: @name, start: {@name, :start_link, []}, restart: :temporary}
   end
@@ -19,7 +19,7 @@ defmodule Needy.Example.Loop do
   Starts the server.
   """
   @spec start_link() :: {:ok, pid}
-  def start_link() do
+  def start_link do
     pid = spawn_link(@name, :loop, [])
     {:ok, pid}
   end
@@ -27,11 +27,11 @@ defmodule Needy.Example.Loop do
   @doc """
   Needs returns the servers that should be started before this one.
   """
-  @spec needs() :: [Needy.Dependencies.spec]
-  def needs(), do: [Sequence, Log]
+  @spec needs() :: [Needy.Dependencies.spec()]
+  def needs, do: [Sequence, Log]
 
   @spec loop() :: nil
-  def loop() do
+  def loop do
     Log.info("Loop tells Log the next number given by Sequence is #{Sequence.next()}.")
     :timer.sleep(1000)
     loop()

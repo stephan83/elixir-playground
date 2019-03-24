@@ -310,7 +310,6 @@ defmodule Needy.Assistant do
         {:status, :waiting} -> :running
         {:status, :running} -> :running
         {:status, :runnable} -> :running
-        # TODO: What does it really mean?
         {:status, :suspended} -> :running
         nil -> :stopped
       end
