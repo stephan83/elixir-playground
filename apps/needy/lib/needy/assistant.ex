@@ -82,9 +82,21 @@ defmodule Needy.Assistant do
   @type on_stop :: :ok | {:error, :not_found} | {:error, :needed}
   @type status :: :exiting | :running | :stopped
 
-  #===============================================================================================
+  defmodule State do
+    @moduledoc false
+
+    defstruct [
+      :supervisor,
+      specs: %{},
+      refs: %{},
+      stop_dependents: false,
+      restart_dependents: true
+    ]
+  end
+
+  # ==============================================================================================
   # Client API
-  #===============================================================================================
+  # ==============================================================================================
 
   @doc """
   Starts the server.
@@ -118,7 +130,9 @@ defmodule Needy.Assistant do
       |> Keyword.take(@opts)
       |> Enum.into(%{})
 
-    {:ok, {%{}, %{}, opts}}
+    state = Map.merge(%State{}, opts)
+
+    {:ok, state}
   end
 
   @doc """
@@ -172,54 +186,54 @@ defmodule Needy.Assistant do
     GenServer.call(assistant, {:status, spec})
   end
 
-  #===============================================================================================
+  # ==============================================================================================
   # Server Callbacks
-  #===============================================================================================
+  # ==============================================================================================
 
   @doc false
   @impl true
-  def handle_call({:start, spec}, _from, state) do
+  def handle_call({:start, spec}, _from, %State{} = state) do
     {res, state} = do_start(spec, state)
     {:reply, res, state}
   end
 
   @doc false
   @impl true
-  def handle_call({:stop, spec}, _from, state) do
+  def handle_call({:stop, spec}, _from, %State{} = state) do
     {:reply, do_stop(spec, state), state}
   end
 
   @doc false
   @impl true
-  def handle_call({:can_stop?, spec}, _from, state) do
+  def handle_call({:can_stop?, spec}, _from, %State{} = state) do
     {:reply, do_can_stop?(spec, state), state}
   end
 
   @doc false
   @impl true
-  def handle_call({:lookup, spec}, _from, {specs, _refs, _opts} = state) do
+  def handle_call({:lookup, spec}, _from, %State{specs: specs} = state) do
     {:reply, Map.get(specs, spec), state}
   end
 
   @doc false
   @impl true
-  def handle_call({:status, spec}, _from, state) do
+  def handle_call({:status, spec}, _from, %State{} = state) do
     {:reply, do_status(spec, state), state}
   end
 
   @doc false
   @impl true
-  def handle_info({:DOWN, ref, :process, _pid, reason}, {specs, refs, opts} = state) do
-    {spec, refs} = Map.pop(refs, ref)
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %State{} = state) do
+    {spec, refs} = Map.pop(state.refs, ref)
 
-    if opts.stop_dependents do
+    if state.stop_dependents do
       stop_dependents(spec, state, reason)
     end
 
-    specs = Map.delete(specs, spec)
-    state = {specs, refs, opts}
+    specs = Map.delete(state.specs, spec)
+    state = %State{state | specs: specs, refs: refs}
 
-    if reason not in [:normal, :shutdown] and opts.restart_dependents do
+    if reason not in [:normal, :shutdown] and state.restart_dependents do
       {_res, state} = do_start(spec, state)
       {:noreply, state}
     else
@@ -229,15 +243,15 @@ defmodule Needy.Assistant do
 
   @doc false
   @impl true
-  def handle_info(_msg, state) do
+  def handle_info(_msg, %State{} = state) do
     {:noreply, state}
   end
 
-  #===============================================================================================
+  # ==============================================================================================
   # Internals
-  #===============================================================================================
+  # ==============================================================================================
 
-  defp do_start(spec, state) do
+  defp do_start(spec, %State{} = state) do
     with {:ok, deps} <- Dependencies.dependencies(spec) do
       deps
       |> Enum.filter(&filter_stopped(&1, state))
@@ -247,18 +261,18 @@ defmodule Needy.Assistant do
     end
   end
 
-  defp do_stop(spec, {specs, _refs, opts} = state) do
+  defp do_stop(spec, %State{supervisor: supervisor, specs: specs} = state) do
     Logger.info("stopping #{inspect(spec)}")
 
     if do_can_stop?(spec, state) do
       pid = Map.get(specs, spec)
-      DynamicSupervisor.terminate_child(opts.supervisor, pid)
+      DynamicSupervisor.terminate_child(supervisor, pid)
     else
       {:error, :needed}
     end
   end
 
-  defp do_can_stop?(spec, {specs, _refs, _opts} = state) do
+  defp do_can_stop?(spec, %State{specs: specs} = state) do
     if do_status(spec, state) == :stopped do
       false
     else
@@ -270,7 +284,7 @@ defmodule Needy.Assistant do
     end
   end
 
-  defp do_status(spec, {specs, _refs, _opts}) do
+  defp do_status(spec, %State{specs: specs}) do
     with pid when is_pid(pid) <- Map.get(specs, spec) do
       case Process.info(pid, :status) do
         {:status, :exiting} -> :exiting
@@ -287,7 +301,7 @@ defmodule Needy.Assistant do
     end
   end
 
-  defp filter_stopped(spec, state) do
+  defp filter_stopped(spec, %State{} = state) do
     case do_status(spec, state) do
       :stopped -> true
       :running -> false
@@ -295,20 +309,21 @@ defmodule Needy.Assistant do
     end
   end
 
-  defp start_reducer(spec, {_last, {specs, refs, opts} = state}) do
+  defp start_reducer(spec, {_last, %State{} = state}) do
     Logger.info("starting #{inspect(spec)}")
 
-    with {:ok, pid} <- DynamicSupervisor.start_child(opts.supervisor, spec) do
-      specs = Map.put(specs, spec, pid)
+    with {:ok, pid} <- DynamicSupervisor.start_child(state.supervisor, spec) do
+      specs = Map.put(state.specs, spec, pid)
       ref = Process.monitor(pid)
-      refs = Map.put(refs, ref, spec)
-      {:cont, {{:ok, pid}, {specs, refs, opts}}}
+      refs = Map.put(state.refs, ref, spec)
+      state = %State{state | specs: specs, refs: refs}
+      {:cont, {{:ok, pid}, state}}
     else
       err -> {:halt, {err, state}}
     end
   end
 
-  defp stop_dependents(spec, {specs, _refs, _opts}, reason) do
+  defp stop_dependents(spec, %State{specs: specs}, reason) do
     all_specs = Map.keys(specs)
     {:ok, dependents} = Dependencies.dependents(spec, all_specs)
 
